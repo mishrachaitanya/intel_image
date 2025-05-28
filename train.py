@@ -6,17 +6,17 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score
 
 # Paths
-TRAIN_DIR = 'seg_train/seg_train'
-TEST_DIR = 'seg_test/seg_test'
+TRAIN_DIR = 'data/train'
+VAL_DIR = 'data/validation'
 MODEL_PATH = os.path.join(os.getcwd(), 'model.weights.h5')
 
 # Hyperparameters
 BATCH_SIZE = 32
 EPOCHS = 5
-LEARNING_RATE = 0.001
+LR = 0.001
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Image transforms
+# Image transformations
 transform = transforms.Compose([
     transforms.Resize((128, 128)),
     transforms.ToTensor()
@@ -24,22 +24,24 @@ transform = transforms.Compose([
 
 # Load datasets
 train_dataset = datasets.ImageFolder(TRAIN_DIR, transform=transform)
-test_dataset = datasets.ImageFolder(TEST_DIR, transform=transform)
+val_dataset = datasets.ImageFolder(VAL_DIR, transform=transform)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-# Load pretrained model and modify classifier
+print(f"Training samples: {len(train_dataset)}")
+print(f"Validation samples: {len(val_dataset)}")
+
+# Load a pretrained model
 model = models.resnet18(pretrained=True)
-model.fc = nn.Linear(model.fc.in_features, len(train_dataset.classes))
+model.fc = nn.Linear(model.fc.in_features, 2)  # 2 classes: cat, dog
 model = model.to(DEVICE)
 
 # Loss and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-# Training
-print("Starting training...")
+# Training loop
 for epoch in range(EPOCHS):
     model.train()
     running_loss = 0.0
@@ -53,22 +55,23 @@ for epoch in range(EPOCHS):
         optimizer.step()
         running_loss += loss.item()
 
-    print(f"Epoch [{epoch+1}/{EPOCHS}], Loss: {running_loss/len(train_loader):.4f}")
+    avg_loss = running_loss / len(train_loader)
 
-    # Validation
+    # Evaluation
     model.eval()
-    preds_all = []
-    labels_all = []
+    val_preds = []
+    val_labels = []
     with torch.no_grad():
-        for images, labels in test_loader:
+        for images, labels in val_loader:
             images = images.to(DEVICE)
             outputs = model(images)
             _, preds = torch.max(outputs, 1)
-            preds_all.extend(preds.cpu().numpy())
-            labels_all.extend(labels.numpy())
-    acc = accuracy_score(labels_all, preds_all)
-    print(f"Validation Accuracy: {acc:.4f}")
+            val_preds.extend(preds.cpu().numpy())
+            val_labels.extend(labels.numpy())
+
+    acc = accuracy_score(val_labels, val_preds)
+    print(f"Epoch [{epoch+1}/{EPOCHS}] - Loss: {avg_loss:.4f} - Val Accuracy: {acc:.4f}")
 
 # Save model
 torch.save(model.state_dict(), MODEL_PATH)
-print(f"Model saved to {MODEL_PATH}")
+print(f"\n✅ Model saved as: {MODEL_PATH}")
