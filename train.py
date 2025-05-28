@@ -1,9 +1,8 @@
 import os
-import torch
-import torch.nn as nn
-from torchvision import datasets, transforms, models
-from torch.utils.data import DataLoader
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from sklearn.metrics import accuracy_score
+import numpy as np
 
 # Paths
 TRAIN_DIR = 'data/train'
@@ -13,65 +12,70 @@ MODEL_PATH = os.path.join(os.getcwd(), 'model.weights.h5')
 # Hyperparameters
 BATCH_SIZE = 32
 EPOCHS = 5
+IMG_SIZE = (128, 128)
 LR = 0.001
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Image transformations
-transform = transforms.Compose([
-    transforms.Resize((128, 128)),
-    transforms.ToTensor()
-])
+# Disable GPU (optional, since you're on CPU anyway)
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-# Load datasets
-train_dataset = datasets.ImageFolder(TRAIN_DIR, transform=transform)
-val_dataset = datasets.ImageFolder(VAL_DIR, transform=transform)
+# Data loading and preprocessing
+train_datagen = ImageDataGenerator(rescale=1./255)
+val_datagen = ImageDataGenerator(rescale=1./255)
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+train_generator = train_datagen.flow_from_directory(
+    TRAIN_DIR,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
 
-print(f"Training samples: {len(train_dataset)}")
-print(f"Validation samples: {len(val_dataset)}")
+val_generator = val_datagen.flow_from_directory(
+    VAL_DIR,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical',
+    shuffle=False
+)
+
+print(f"🧠 Training samples: {train_generator.samples}")
+print(f"🧪 Validation samples: {val_generator.samples}")
 
 # Load a pretrained model
-model = models.resnet18(pretrained=True)
-model.fc = nn.Linear(model.fc.in_features, 2)  # 2 classes: cat, dog
-model = model.to(DEVICE)
+base_model = tf.keras.applications.ResNet50(
+    weights='imagenet', include_top=False, input_shape=(128, 128, 3)
+)
+base_model.trainable = False  # Freeze base
 
-# Loss and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+# Add classification head
+model = tf.keras.Sequential([
+    base_model,
+    tf.keras.layers.GlobalAveragePooling2D(),
+    tf.keras.layers.Dense(2, activation='softmax')  # 2 classes
+])
 
-# Training loop
-for epoch in range(EPOCHS):
-    model.train()
-    running_loss = 0.0
-    for images, labels in train_loader:
-        images, labels = images.to(DEVICE), labels.to(DEVICE)
+# Compile model
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=LR),
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
 
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        running_loss += loss.item()
+# Training
+history = model.fit(
+    train_generator,
+    epochs=EPOCHS,
+    validation_data=val_generator
+)
 
-    avg_loss = running_loss / len(train_loader)
+# Evaluation
+val_generator.reset()
+preds = model.predict(val_generator, verbose=0)
+pred_labels = np.argmax(preds, axis=1)
+true_labels = val_generator.classes
 
-    # Evaluation
-    model.eval()
-    val_preds = []
-    val_labels = []
-    with torch.no_grad():
-        for images, labels in val_loader:
-            images = images.to(DEVICE)
-            outputs = model(images)
-            _, preds = torch.max(outputs, 1)
-            val_preds.extend(preds.cpu().numpy())
-            val_labels.extend(labels.numpy())
+acc = accuracy_score(true_labels, pred_labels)
+print(f"\n✅ Final Validation Accuracy: {acc:.4f}")
 
-    acc = accuracy_score(val_labels, val_preds)
-    print(f"Epoch [{epoch+1}/{EPOCHS}] - Loss: {avg_loss:.4f} - Val Accuracy: {acc:.4f}")
-
-# Save model
-torch.save(model.state_dict(), MODEL_PATH)
+# Save weights
+model.save_weights(MODEL_PATH)
 print(f"\n✅ Model saved as: {MODEL_PATH}")
