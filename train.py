@@ -37,8 +37,8 @@ val_generator = val_datagen.flow_from_directory(
     shuffle=False
 )
 
-print(f"🧠 Training samples: {train_generator.samples}")
-print(f"🧪 Validation samples: {val_generator.samples}")
+print(f"Training samples: {train_generator.samples}")
+print(f"Validation samples: {val_generator.samples}")
 
 # Load a pretrained model
 base_model = tf.keras.applications.ResNet50(
@@ -74,8 +74,8 @@ pred_labels = np.argmax(preds, axis=1)
 true_labels = val_generator.classes
 
 acc = accuracy_score(true_labels, pred_labels)
-print(f"\n✅ Final Validation Accuracy: {acc:.4f}")
+print(f"\nFinal Validation Accuracy: {acc:.4f}")
 
 # Save weights
 model.save_weights(MODEL_PATH)
-print(f"\n✅ Model saved as: {MODEL_PATH}")
+print(f"\n Model saved as: {MODEL_PATH}")
